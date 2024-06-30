@@ -2,28 +2,29 @@
 import os
 import subprocess
 import importlib.util
+import sys
+
+# List of required modules and their import names
+required_modules = {
+    'requests': 'requests',
+    'configparser': 'configparser',
+}
+
+# Function to check and install required modules
+def check_install_modules():
+    for package, module in required_modules.items():
+        if importlib.util.find_spec(module) is None:
+            print(f"{package} not found. Installing...")
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', package])
+            print(f"{package} installed successfully.")
+
+check_install_modules()
+
 import requests
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import configparser
-
-# Function to check and install required modules
-def check_install_modules():
-    required_modules = ['requests', 'configparser']
-    installed_modules = []
-
-    for module in required_modules:
-        try:
-            __import__(module)
-            installed_modules.append(module)
-        except ImportError:
-            print(f"{module} not found. Installing...")
-            subprocess.check_call(['pip', 'install', module])
-            installed_modules.append(module)
-            print(f"{module} installed successfully.")
-
-    return installed_modules
 
 # Function to read configuration from config.txt or create it with default values
 def read_config(file_name='config.txt'):
@@ -51,57 +52,15 @@ def create_config(file_name):
     
     print(f"{file_name} created with default placeholders.")
 
-# Function to create IP_check_servers.txt with default servers if it doesn't exist
-def create_default_servers(file_name):
-    default_servers = [
-        'https://api64.ipify.org?format=json',
-        'https://ipinfo.io/json',
-        'https://ifconfig.co/json',
-        'https://api.ipify.org?format=json',
-        'https://checkip.amazonaws.com/',
-        'https://api.myip.com/',
-        'https://api.ipify.org/?format=json',
-        'https://ifconfig.me/all.json',
-        'https://bot.whatismyipaddress.com/',
-        'https://api6.ipify.org?format=json',
-        'https://icanhazip.com/json',
-        'https://ipapi.co/json',
-        'https://myexternalip.com/json',
-        'https://ip.seeip.org/json',
-        'https://ifconfig.io/json',
-        'https://api.ident.me/json',
-        'https://ip-api.com/json'
-    ]
-    
-    with open(file_name, 'w') as file:
-        file.write('\n'.join(default_servers))
-    
-    print(f"{file_name} created with default servers.")
-    
-    return default_servers
-
-# Function to read the list of servers from file
-def read_servers_from_file(file_name):
-    if not os.path.exists(file_name):
-        return create_default_servers(file_name)
-    
-    with open(file_name, 'r') as file:
-        servers = [server.strip() for server in file if server.strip()]
-    return servers
-
-# Function to write the list of servers to file
-def write_servers_to_file(file_name, servers):
-    with open(file_name, 'w') as file:
-        file.write('\n'.join(servers))
-
-# Function to fetch external IP address using a server
-def get_external_ip(server):
+# Function to fetch external IP address using https://api.ipify.org
+def get_external_ip():
     try:
-        response = requests.get(server)
+        response = requests.get('https://api.ipify.org?format=json')
         response.raise_for_status()
-        return response.json().get('ip')
+        ip_data = response.json()
+        return ip_data['ip']
     except requests.RequestException as e:
-        print(f"Error fetching IP address from {server}: {e}")
+        print(f"Error: {e}")
         return None
 
 # Function to read the stored IP from file if exists
@@ -130,9 +89,9 @@ def send_email(smtp_server, smtp_port, smtp_username, smtp_password, sender_emai
             server.login(smtp_username, smtp_password)
             server.sendmail(sender_email, recipient_emails, message.as_string())
         
-        print("Email notification sent successfully.")
+        print("Email sent.")
     except Exception as e:
-        print(f"Failed to send email notification: {e}")
+        print(f"Error in email config: {e}")
 
 # Main function to check and compare IPs
 def main():
@@ -142,26 +101,34 @@ def main():
     # Read email configuration from config.txt
     config_file = 'config.txt'
     config = read_config(config_file)
-    smtp_server = config['smtp_server']
-    smtp_port = int(config['smtp_port'])
-    smtp_username = config['smtp_username']
-    smtp_password = config['smtp_password']
-    sender_email = config['sender_email']
-    recipient_emails = [email.strip() for email in config['recipient_email'].split(',')]
+    smtp_server = config.get('smtp_server')
+    smtp_port = config.get('smtp_port')
+    smtp_username = config.get('smtp_username')
+    smtp_password = config.get('smtp_password')
+    sender_email = config.get('sender_email')
+    recipient_emails = [email.strip() for email in config.get('recipient_email', '').split(',')]
+
+    # Debugging statements for email configuration
+    print(f"smtp_server: {smtp_server}")
+    print(f"smtp_port: {smtp_port}")
+    print(f"smtp_username: {smtp_username}")
+    print(f"sender_email: {sender_email}")
+    print(f"recipient_emails: {recipient_emails}")
+
+    # Check if smtp_port is a valid integer
+    try:
+        smtp_port = int(smtp_port)
+    except ValueError:
+        smtp_port = None
+        print("SMTP port is not a valid integer.")
+
+    valid_email_config = all([smtp_server, smtp_port, smtp_username, smtp_password, sender_email, recipient_emails])
     
-    # Read the list of servers from file or create with default servers if not exist
-    servers_file = 'IP_check_servers.txt'
-    servers = read_servers_from_file(servers_file)
-    
-    # Attempt to get external IP from the list of servers
-    current_ip = None
-    for server in servers:
-        current_ip = get_external_ip(server)
-        if current_ip:
-            break
+    # Attempt to get external IP from https://api.ipify.org
+    current_ip = get_external_ip()
     
     if not current_ip:
-        print("Failed to retrieve IP from all servers. Exiting...")
+        print("Failed to retrieve IP. Exiting...")
         return
     
     # Compare current IP with stored IP
@@ -172,13 +139,18 @@ def main():
         # Update the stored IP with the current one
         write_ip_to_file(stored_ip_file, current_ip)
         
-        # Send email notification if IP has changed
+        # Send email notification if IP has changed and email config is valid
         if stored_ip is not None:
             subject = 'IP Address Change Notification'
             body = f"The external IP address has changed from {stored_ip} to {current_ip}"
-            send_email(smtp_server, smtp_port, smtp_username, smtp_password, sender_email, recipient_emails, subject, body)
+            if valid_email_config:
+                send_email(smtp_server, smtp_port, smtp_username, smtp_password, sender_email, recipient_emails, subject, body)
+            else:
+                print(f"{subject}\n{body}")
+        else:
+            print("Stored IP is None, no email sent.")
     else:
-        print(f"IP same from {server}")
+        print(f"IP has not changed: {current_ip}")
 
 if __name__ == "__main__":
     main()
