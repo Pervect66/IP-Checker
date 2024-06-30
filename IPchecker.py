@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# 
+# Check for external IP, if changed since last check: message on-screen and email
+
 import os
 import subprocess
 import importlib.util
