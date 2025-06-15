@@ -1,0 +1,8 @@
+[Email]
+smtp_server = your_smtp_server_address
+smtp_port = 587
+smtp_username = your_email_username
+smtp_password = your_email_password
+sender_email = your_email_address
+recipient_email = recipient1@example.com, recipient2@example.com
+
